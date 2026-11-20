@@ -1,0 +1,344 @@
+---
+title: "5e Monsters"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+library(tidyverse)
+library(lm.beta)
+library(corrgram)
+library(ppcor)
+```
+
+```{r, include = FALSE}
+monsters <- read_csv("aidedd_blocks2.csv")
+```
+#Introduction
+
+This dataset is on all of the official Dungeons and Dragons fifth edition monsters from all official sources. Monsters are broken into different categories based on a wide variety of their stats, known as combat rating (CR). Think of this stat as how many monsters a typical party of four players is able to beat given their character level. For example, a party of 4 level 5 characters should be able to fight exactly 1 CR 5 monster. They could also fight 5 CR 1 monsters and have that also be a balanced encounter. 
+
+This is the primary stat used by dungeon masters to create fun encounters for their players. In addition to having a CR score, monsters have a hit point (HP) score, armor class (AC), and six different ability scores. Ability scores consist of strength, dexterity, constitution, intelligence, wisdom, and charisma. I want to know what determines a Monsters CR based on these stats.
+```{r, include = FALSE}
+head(monsters)
+```
+
+Not every row in the dataset is useful for what I'm looking for, so I'm filtering for the variables I want to investigate. I will only be looking at name, size, type, alignment, ac, hp, cr, speed, passive_percepton, strength, dex, con, intel, wis, cha, and source
+```{r, include = FALSE}
+monsters_small <- dplyr::select(monsters, name, size, type, alignment, ac, hp, cr, speed, passive_perception, strength, dex, con, intel, wis, cha, source)
+```
+```{r, include = FALSE}
+head(monsters_small)
+```
+#Number of creatures in each CR
+
+Let's take a look at the number of creatures in each combat rating category
+```{r}
+ggplot(data = monsters_small)+
+  geom_bar(mapping = aes(x = cr), color = 'blue')
+```
+```{r}
+monsters_small %>% 
+  dplyr::select(cr) %>% 
+  group_by(cr) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count))
+```
+
+There are many creatures in the 0 to 15 range, but the number significantly decreases after that. This makes sense since players can only have a max level of 20. The CR with the largest number of creatures is 2.
+
+#Armor Class
+
+To begin our investigation into what determines a monster's combat rating, lets start by looking at each piece individually. starting with Armor class. Armor class determines how likely a player is to hit a monster when attacking. When rolling to attack, their attack roll + modifiers must equal or exceed the monster's armor class value in order to successfully hit the creature. Lets see how much that relates to a monsters CR
+```{r}
+monsters_small %>% 
+  ggplot()+
+  geom_jitter(mapping = aes(x = cr, y = ac))
+```
+
+OK, so it does appear that the higher a monster's AC is, their CR is. Let's try to break this down some more. In dungeons and dragons, dexterity is normally associated with a creatures armor class. Lets see how correlated the two are for monsters
+```{r}
+ggplot(data = monsters_small)+
+  geom_jitter(mapping = aes(x = ac, y = dex))
+```
+
+There appears to be a positive correlation between the two, but it doesn't appear to be very strong. Notice as a monsters armor class increases, the monsters dexterity score (dex) increases. However at a certain point, things get a little funky.
+```{r}
+cor.test(monsters_small$ac, monsters_small$dex)
+```
+
+So it appears that for monsters, dexterity does not have as much of an effect on their ac as it does for players.
+
+Lets look at the summary of each cr by a creatures ac
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = ac),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+
+it appears that lower CR monsters have a median ac of about 10 to 15 while higher cr ones have a median ac of about 15 to 20. This makes sense as monsters with a higher combat rating should be harder to damage. Let's find the median ac for each cr.
+```{r}
+monsters_small %>% 
+  dplyr::select(cr, ac) %>% 
+  group_by(cr) %>% 
+  summarise(median_ac = median(ac, na.rm = TRUE))
+```
+
+#Creature size
+
+Since this may be important to determining a monster's CR, lets spend some time looking at the size of the monster. In the game, this determines how many grid spaces a creature occupies. One grid space is equivalent to 5 feet. Tiny creatures take up 1/4 of a grid space, small and medium creatures take up 1 full grid, large creatures take up a 2x2 grid, huge creatures take up a 3x3 grid, and lastly gargantuan creatures take up a 4x4 grid or larger. Let's first look at the breakdown for each size.
+```{r}
+ggplot(data = monsters_small)+
+  geom_bar(mapping = aes(x = size))
+```
+
+Most of the creatures in this dataset are sized medium. This makes sense as most humanoid creatures tend to be medium or large. Let's see what the average dexterity and constitution score for a monster is based on their size. as well as the count in each
+```{r}
+monsters_small %>% 
+  dplyr::select(size, dex, con) %>% 
+  group_by(size) %>% 
+  summarise(avg_dex = mean(dex, na.rm = TRUE), avg_con = mean(con, na.rm = TRUE), count = n())
+```
+
+smaller creatures appear to have higher dex but lower con, while the inverse is true for larger creatures. This makes sense as smaller creatures would be quicker and more nimble than larger creatures, but would be more likely to get hurt or damaged easier than larger creatures.
+
+Since we saw that a monsters Armor class was likely uncorrelated with dex, Let's try and see if we can determine if a creatures size is related to their AC
+
+```{r}
+summary(aov(ac~size, data = monsters_small))
+```
+
+There appears to be a significant difference between a creature's ac based their size
+```{r}
+ggplot(data = monsters_small)+
+  geom_jitter(mapping = aes(x = ac, y = dex, color = size))
+```
+
+This is the ac/dex graph from earlier, except with size mapped to the color. This is slightly helpful as it appears that creatures that are larger have higher armor class scores, but as their size increases, their dexterity does not. This shows that likely, a creatures size has more impact on their armor class than their dexterity score.
+
+lastly in this section, lets look at a creatures median speed compared to their size. This is to rule out any outliers in the higher and lower sizes that don't have as many observations. I would expect a larger creature would be slower.
+```{r}
+monsters_small %>% 
+  dplyr::select(size, speed) %>% 
+  group_by(size) %>% 
+  summarise(median_speed = median(speed))
+```
+
+interesting, it appears a creatures speed is not affected by their size. It is interesting to note that median being around 30, as most creatures have 30 feet of movement.
+
+#Hit points
+
+The next big piece that should have a large impact on a creatures combat rating is their hit points. This stat is how much damage a creature can take before it is defeated. Higher cr monsters should have more hp than lower cr monsters. Let's see how the averages support this.
+```{r}
+monsters_small %>% 
+  dplyr::select(hp, cr) %>% 
+  group_by(cr) %>% 
+  summarise(medain_hp = median(hp, na.rm = TRUE)) %>% 
+  arrange(desc(medain_hp))
+```
+
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = hp),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+
+This looks about how I expected it to look, lower CR creatures do have a lower hp maximum than higher cr ones. Now normally a characters Constitution score (con) determines a creature's hit points, but things work a little differently for monsters since their health is derived from a dice roll formula. Are hp and con correlated for monsters?
+
+```{r}
+ggplot(data = monsters_small) +
+  geom_point(mapping = aes(x = hp, y = con))
+```
+
+OK, so there does appear to still be a positive correlation between hp and con.
+```{r}
+cor.test(monsters_small$hp, monsters_small$con)
+```
+
+.84 is very significant, and given the p value is less than 2.2e-16, this means that this was unlikely to occur by chance. This likely means that the monsters hit point formula takes their constitution score into account before it is calculated. So unlike armor class, hit points are likely derived from the stat they should be calculated from.
+
+#Alignment
+
+Each creature in dungeons and dragons has an alignment. This tells you how a creature acts or what their tendencies are. There are 3 big categories, Good, Neutral, and Evil. Evil characters are more likely to do what they want for their good, good characters tend to do what is right for the greater good, neutral characters tend to do what they feel is right in the moment. Each alignment can be broken into 3 sub categories. Lawful, neutral, and Chaotic. Lawful characters tend to do things by the book, while chaotic characters tend to do whatever they feel like. once again, neutral characters tend to just make it up as they go along, with no real leaning one way or another.
+
+Lets look at the number of monsters in each alignment, excluding those that are unaligned or can be from any alignment.
+```{r}
+alignments <- monsters_small %>% 
+  filter(alignment %in% c('chaotic evil', 'neutral evil', 'lawful evil', 'chaotic good', 'neutral good', 'lawful good', 'chaotic neutral', 'neutral', 'lawful neutral'))
+
+alignments %>% 
+  group_by(alignment) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count))
+```
+```{r}
+ggplot(data = alignments) +
+  geom_bar(mapping = aes(x = alignment))
+```
+
+
+So this is about what I was expecting, there tend to be more monsters in the evil alignments rather than neutral or good. Lets look at the average CR for each of the alignments, perhaps evil alignments tend to have a higher CR.
+
+```{r}
+alignments %>%
+  group_by(alignment) %>% 
+  summarise(median_cr = median(cr)) %>% 
+  arrange(desc(median_cr))
+```
+
+interesting, the median cr is higher for good characters than evil characters. This was not what I was expecting at all. This may be due to the fact that most campaigns are designed for players to play more traditionally good characters, and as such, they aren't meant to fight good characters. With the good characters having a higher median cr, this is likely a punishment for the players for fighting a character that isn't supposed to be fought.
+
+Lets look at their average hp next
+```{r}
+alignments %>%
+  group_by(alignment) %>% 
+  summarise(median_hp = median(hp)) %>% 
+  arrange(desc(median_hp))
+```
+
+again, the good alignments on average have more hp than evil ones. This may support the fact that hp directly influences a monsters cr. Lets see how their ac's look.
+
+```{r}
+alignments %>%
+  group_by(alignment) %>% 
+  summarise(median_ac = median(ac)) %>% 
+  arrange(desc(median_ac))
+```
+
+So it appears that again the good alignments have a higher ac, however, the evil alignments have moved up higher with ac. This suggests that monsters with evil alignments tend to have high armor classes, but they take less hits to defeat.
+
+#Ablility scores
+
+The last piece we should look at is each creatures ability scores. These 6 values are the last pieces of data that may have an effect on a creatures cr. Strength, Dexterity, Constitution, Intelligence, Wisdom, and Charisma determine how likely a creature is able to anything and everything. Each of these stats is tied to specific skills, and although we aren't looking at them here, they are derived from these scores. Lets look at the median of each of these for CR
+
+```{r}
+monsters_small %>% 
+  dplyr::select(cr, strength, dex, con, intel, wis, cha) %>% 
+  group_by(cr) %>% 
+  summarise(median_str = median(strength, na.rm = TRUE), median_dex = median(dex, na.rm = TRUE), median_con = median(con, na.rm = TRUE), median_int = median(intel, na.rm = TRUE), median_wis = median(wis, na.rm = TRUE), median_cha = median(cha, na.rm = TRUE))
+```
+
+Looking through this, it appears that all the numbers tend to go up as a creatures cr increases, the only stat that doesn't drastically increase is dexterity, which as we saw earlier likely doesn't affect a creatures cr as much since ac is no longer derived from it.
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = strength),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = dex),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = con),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = intel),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = wis),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+```{r}
+ggplot(data = monsters_small)+
+    stat_summary(mapping = aes(x = cr, y = cha),
+                  fun.min = min, 
+                  fun.max = max,
+                  fun = median)
+```
+
+
+
+#Regression and Correlation with regards to CR
+
+Lets take a look at the correlation matrix between all of the variables in this smaller dataset
+```{r, include = FALSE}
+monsters_num <- monsters_small %>% 
+  dplyr::select(ac,hp,cr, strength, dex, con, intel, wis, cha)
+```
+
+```{r}
+cor(monsters_num)
+```
+
+```{r}
+corrgram(monsters_num)
+```
+
+cr and hp appear to have a huge correlation between each other. It also appears that most of these variables are positively correlated with one another. Dexterity doesn't appear to be that correlated to CR, which makes sense with what I found earlier. another interesting observation from this graph is that constitution seems to be correlated with cr as strongly as it is correlated with hp. Let's look at the correlation between con and cr when parsing out the effect of hp and vice versa.
+
+Starting with con and cr
+
+```{r}
+pcor.test(monsters_small$con, monsters_small$cr, monsters_small$hp)
+```
+
+Now doing hp and cr
+```{r}
+pcor.test(monsters_small$hp, monsters_small$cr, monsters_small$con)
+```
+
+Ok, so it appears that hp is still strongly correlated to cr even if you take out the effect of Con, however, con is no longer significantly correlated to cr once you remove the effect of HP.
+
+Let's now try to predict a creatures CR from their hp, ac, and ability scores.
+```{r}
+monsters_model <- lm(cr~hp + ac + strength + dex + con + intel + wis + cha, data = monsters_small)
+summary(monsters_model)
+```
+
+So from this, the formula for calculating a monster's CR is as follows:
+
+predicted CR = -6.45 + 0.05(hp) + 0.19(ac) - 0.07(strength) + 0.03(dex) + 0.16(con) + 0.12(intel) + 0.18(wis) - 0.02(cha)
+
+Lastly, here is the standardized coefficients
+
+```{r}
+lm.beta(monsters_model)
+```
+
+This shows that a monsters ac and hp have more of an effect on cr than the ability scores.
+
+##Testing this on an unoffical statblock
+
+I have a subscription service for 3D printable models and each month they include the stat blocks so you can actually use them in a game of dungeons and dragons. So I took one of the stat blocks and tested it on my regression model
+
+The stat block I used was for King Arthur. He has an AC 18, HP of 142, Str of 19, Dex of 17, Con of 17, Int of 15, Wis of 18, and Cha of 21
+
+```{r}
+-6.45 + (.05*142) + (.19*18) - (.07*19) + (.03*17) + (.16*17) + (.12*15) + (.18*18) -(.02*21)
+```
+
+This is actually pretty close to the CR of King Arthur, he is a CR 11 character.
+
+#Conclusion
+
+I was able to find what possibly determines a creatures Combat Rating, and it is likely based on their hp, ac, strength, dexterity, constitution, intelligence, wisdom, and charisma scores. Another big take away besides the regression formula was that a creatures Armor class is not determined by their dexterity, but is more likely determined by the size of the creature. If I had more time to clean up the data a little bit more, I would like to see how a creature's creature type affects their combat rating and see what type of creature is the hardest to beat. Something that would also be cool to find is what is the average number of turns in combat it takes to beat a single one of each monster. This is something that would require a whole lot of additional research to find, but it would be interesting to see the results.
+
+
+#Sources
+
+“Loot Studios - Arthurian Tales.” Lootstudios.com, 2024, app.lootstudios.com/bundle/arthurian-tales/. Accessed 1 May 2025.
+
+T, Travis. “DnD 5e Stat Blocks.” Kaggle.com, 2021, www.kaggle.com/datasets/travistyler/dnd-5e-monster-manual-stats. Accessed 1 May 2025.
+
